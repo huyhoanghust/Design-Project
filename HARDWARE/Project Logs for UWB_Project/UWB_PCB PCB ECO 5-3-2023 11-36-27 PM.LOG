@@ -1,0 +1,5 @@
+Removed Pin From Net: NetName=GND Pin=B1-15
+Removed Pin From Net: NetName=NRST Pin=B1-19
+Removed Pin From Net: NetName=VBAT Pin=JP2-1
+Removed Pin From Net: NetName=GND Pin=JP2-2
+Removed Member From Class: ClassName=UWB_Project Member=JP2

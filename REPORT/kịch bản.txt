@@ -1,0 +1,5 @@
+mô hình vẫn theo cấu trúc super-frame, 10 anchor và 40 tag. 
+Anchor cấu hình qua Server hoặc làm một tool trên máy tính để cấu hình. 
+Tag tự động join vào mạng, tag nhận về khoảng cách và tính toán ra vị 
+trí rồi gửi đến Server qua WiFi. Ethernet sẽ làm option dự phòng, nếu 
+làm kịp càng tốt còn không thì cứ hàn lên thôi

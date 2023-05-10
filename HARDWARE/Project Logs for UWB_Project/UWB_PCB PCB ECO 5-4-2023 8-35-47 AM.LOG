@@ -1,0 +1,4 @@
+Added Pin To Net: NetName=LED_RX Pin=R9-1
+Added Pin To Net: NetName=LED_RXOK Pin=R13-1
+Added Pin To Net: NetName=LED_ACT Pin=R14-1
+Added Pin To Net: NetName=LED_SYS Pin=R17-1
