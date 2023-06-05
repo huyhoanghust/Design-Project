@@ -1,0 +1,9 @@
+tuần 1: tìm hiểu tổng quan về các công nghệ định vị
+thuật toán và phân tích thuật toán, chốt phương án
+tuần 2: tìm hiểu về D-TWR, phương pháp Trilateration,
+các thông số trong bản tin gửi và nhận
+tuần 3 thiết kế mạch nguyên lí và mạch PCB
+tuần 4: lựa chọn các thông số, xây dựng cấu trúc bản tin 
+tuần 5: lập trình cho Tag, Lập trình cho Anchor
+tuần 6: hàn và debug mạch
+tuần 7: đợi hoàn thành mạch và tiếp tục phát triển phần mềm

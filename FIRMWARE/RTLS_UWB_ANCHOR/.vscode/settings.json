@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "dw_spi.h": "c",
+        "spi.h": "c",
+        "main.h": "c"
+    }
+}

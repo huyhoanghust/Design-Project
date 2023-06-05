@@ -63,7 +63,7 @@ main-build: RTLS_UWB_ANCHOR.elf secondary-outputs
 
 # Tool invocations
 RTLS_UWB_ANCHOR.elf RTLS_UWB_ANCHOR.map: $(OBJS) $(USER_OBJS) E:\DATK\FIRMWARE\RTLS_UWB_ANCHOR\STM32F103C8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "RTLS_UWB_ANCHOR.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"E:\DATK\FIRMWARE\RTLS_UWB_ANCHOR\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="RTLS_UWB_ANCHOR.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "RTLS_UWB_ANCHOR.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"E:\DATK\FIRMWARE\RTLS_UWB_ANCHOR\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="RTLS_UWB_ANCHOR.map" -Wl,--gc-sections -static -L"E:\DATK\FIRMWARE\RTLS_UWB_ANCHOR\Core\User" --specs=nano.specs -mfloat-abi=soft -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

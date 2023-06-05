@@ -162,6 +162,13 @@ void dwInteruptHandler(void)
     dwRxSoftReset(&device);
   }
 }
+
+void clearAllFlag(void)
+{
+  dwClearTransmitStatus(&device);
+  dwClearReceiveStatus(&device);
+}
+
 void log_data(char *string)
 {
   HAL_UART_Transmit(&huart1, (uint8_t *)string, strlen(string), 1000);
@@ -210,13 +217,14 @@ int main(void)
   }
   else
   {
-    loge("[Configure failed]");
+    log_data("[Configure failed]");
     while (1)
       ;
   }
   dwNewConfiguration(&device);
   dwSetDefaults(&device);
   dwCommitConfiguration(&device);
+  clearAllFlag();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -231,6 +239,8 @@ int main(void)
     if (initAck)
     {
       initAck = false;
+      memset(&txPacket, 0, sizeof(txPacket));
+      memset(&rxPacket, 0, sizeof(rxPacket));
       dwNewReceive(&device);
       dwSetDefaults(&device);
       dwStartReceive(&device);
@@ -268,7 +278,7 @@ int main(void)
         {
         case POLL:
           log_data("POLL\r\n");
-          if (rxPacket.payload[SEQ] != curr_seq) // 1
+          if (rxPacket.payload[SEQ] != 1) // 1
           {
             log_data("wrong sequence number\r\n");
             return 0;
@@ -278,7 +288,7 @@ int main(void)
           poll_rx = arival;
 
           txPacket.payload[TYPE] = ANSWER;
-          txPacket.payload[SEQ] = rxPacket.payload[SEQ] + 1; // 2
+          txPacket.payload[SEQ] = 2; // rxPacket.payload[SEQ] + 1; // 2
           memcpy(txPacket.destAddress, tagBaseAddr, 2);
           memcpy(txPacket.sourceAddress, anchorAddress, 2);
           dwNewTransmit(&device);
@@ -289,7 +299,7 @@ int main(void)
 
         case FINAL:
           log_data("FINAL\r\n");
-          if (rxPacket.payload[SEQ] != curr_seq + 2) // 3
+          if (rxPacket.payload[SEQ] != 3) // 3
           {
             log_data("wrong sequence number\r\n");
             return 0;
@@ -304,7 +314,7 @@ int main(void)
           reportPayload_t *reportmess = (reportPayload_t *)(txPacket.payload + 2);
 
           txPacket.payload[TYPE] = REPORT;
-          txPacket.payload[SEQ] = rxPacket.payload[SEQ] + 1; // 4
+          txPacket.payload[SEQ] = 4; // rxPacket.payload[SEQ] + 1; // 4
           memcpy(txPacket.destAddress, tagBaseAddr, 2);
           memcpy(txPacket.sourceAddress, anchorAddress, 2);
           memcpy(&reportmess->pollRx, &poll_rx, 5);
@@ -331,34 +341,35 @@ int main(void)
       case ANSWER:
         log_data("ANSWER\r\n");
         answer_tx = departure;
+        dwNewReceive(&device);
+        dwSetDefaults(&device);
+        dwStartReceive(&device);
         break;
       case REPORT:
         log_data("REPORT\r\n");
-        curr_seq = 1;
+        //curr_seq = 1;
+        initAck = true;
         break;
       }
       //       dwSetReceiveWaitTimeout(&device, RX_TIMEOUT);
       // dwWriteSystemConfigurationRegister(&device);
-      dwNewReceive(&device);
-      dwSetDefaults(&device);
-      dwStartReceive(&device);
     }
   }
   /* USER CODE END 3 */
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -372,9 +383,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -391,9 +401,9 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -405,14 +415,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

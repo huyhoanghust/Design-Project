@@ -44,16 +44,16 @@ static void spiSetSpeed(dwDeviceTypes_t *dev, dwSpiSpeed_t speed)
 
 static void reset(dwDeviceTypes_t *dev)
 {
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 0);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, 0);
     HAL_Delay(10);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 1);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, 1);
 }
 
 void dwReset(void)
 {
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 0);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, 0);
     HAL_Delay(2);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 1);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, 1);
 }
 
 static void delayms(dwDeviceTypes_t *dev, unsigned int delay)

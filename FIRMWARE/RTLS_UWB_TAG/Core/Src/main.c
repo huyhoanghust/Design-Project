@@ -255,8 +255,10 @@ int main(void)
       // memset(&txHandle, 0, sizeof(txHandle));
       // txHandle.typemess = POLL;
       // txHandle.seq = ++curr_seq; // poll message has seq = 1; answer is 2;..
+      memset(&txPacket, 0, sizeof(txPacket));
+      memset(&rxPacket, 0, sizeof(rxPacket));
       txPacket.payload[TYPE] = POLL;
-      txPacket.payload[SEQ] = curr_seq;
+      txPacket.payload[SEQ] = 1;
       memcpy(txPacket.destAddress, anchorAddress, 2);
       memcpy(txPacket.sourceAddress, tagBaseAddr, 2);
       // memcpy(txPacket.payload, &txHandle, sizeof(txHandle));
@@ -291,8 +293,8 @@ int main(void)
         break;
       }
       // config recieve message
-      dwSetReceiveWaitTimeout(&device, RX_TIMEOUT);
-      dwWriteSystemConfigurationRegister(&device);
+      //dwSetReceiveWaitTimeout(&device, RX_TIMEOUT);
+      //dwWriteSystemConfigurationRegister(&device);
       dwNewReceive(&device);
       dwSetDefaults(&device);
       dwStartReceive(&device);
@@ -322,16 +324,10 @@ int main(void)
       if (memcmp(rxPacket.destAddress, tagBaseAddr, 2))
       {
         // wrong address and repeat receive
-        //  dwSetReceiveWaitTimeout(&device, RX_TIMEOUT);
-        //  dwWriteSystemConfigurationRegister(&device);
+        log_data("error address\r\n");
         dwNewReceive(&device);
         dwSetDefaults(&device);
         dwStartReceive(&device);
-        // do
-        // {
-        //   dwReadSystemEventStatusRegister(&device);
-        // } while (!((device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)) || (device.sysstatus[2] & ((1 << RXRFTO_BIT) >> 16))));
-        // dwInteruptHandler();
         return 0;
       }
       else
@@ -341,7 +337,7 @@ int main(void)
         {
         case ANSWER:
           log_data("ANSWER\r\n");
-          if (rxPacket.payload[SEQ] != curr_seq + 1) // 2
+          if (rxPacket.payload[SEQ] != 2) // 2
           {
             log_data("wrong sequence number\r\n");
             return 0;
@@ -352,7 +348,7 @@ int main(void)
           // clear txpacket
           memset(&txPacket, 0, sizeof(txPacket));
           txPacket.payload[TYPE] = FINAL;
-          txPacket.payload[SEQ] = rxPacket.payload[SEQ] + 1; // 3
+          txPacket.payload[SEQ] = 3; // 3
           memcpy(txPacket.destAddress, anchorAddress, 2);
           memcpy(txPacket.sourceAddress, tagBaseAddr, 2);
           dwNewTransmit(&device);
@@ -371,7 +367,7 @@ int main(void)
           // able truy cap cac phan tu trong payload thong qua con tro
           reportPayload_t *reportmess = (reportPayload_t *)(rxPacket.payload + 2);
           double tround1, treply1, tround2, treply2, tprop_ctn, tprop, distance;
-          if (rxPacket.payload[SEQ] != curr_seq + 3) // 4
+          if (rxPacket.payload[SEQ] != 4) // 4
           {
             log_data("wrong sequence number\r\n");
             return 0;
@@ -412,7 +408,7 @@ int main(void)
           sprintf(buf2, "total time: %f\r\n", totaltime);
           log_data(buf2);
 
-          curr_seq = 1;
+          // curr_seq = 1;
           initAck = true;
           break;
         }

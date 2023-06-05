@@ -98,7 +98,7 @@ int dwConfigure(dwDeviceTypes_t *dev)
 	dev->func->reset(dev);
     dev->func->delayms(dev, 5);
     uint32_t deviceID = dwGetDeviceId(dev);
-    if (deviceID != 0xdeca0130)
+    if (deviceID != 0xdeca0130) //0xdeca0130
     {
         return DW_ERROR_WRONG_ID;
     }
