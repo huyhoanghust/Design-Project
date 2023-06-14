@@ -26,6 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "decawave/dw_api.h"
 #include "log/log.h"
 #include "mac/mac.h"
@@ -98,12 +99,12 @@ static dwTimestamp_t answer_rx;
 static dwTimestamp_t final_tx;
 static dwTimestamp_t final_rx;
 
-static const double C = 299792458.0;        // Speed of light
+static const double C = 299702547;//299792458.0;        // Speed of light
 static const double tsfreq = 499.2e6 * 128; // Timestamp counter frequency
 
 // #define ANTENNA_OFFSET 154.6                                         // In meter
 // #define ANTENNA_DELAY (ANTENNA_OFFSET * 499.2e6 * 128) / 299792458.0 // In radio tick
-#define ANTENNA_DELAY 16475
+#define ANTENNA_DELAY 16450//16475
 
 packet_t rxPacket = {0};
 packet_t txPacket = {0};
@@ -111,6 +112,8 @@ txHandle_t txHandle = {0};
 
 uint8_t curr_seq = 1;
 int curr_anchor = 0;
+long int seq_mess = 1;
+
 
 dwDeviceTypes_t device = {
     .extendedFrameLength = FRAME_LENGTH_NORMAL,
@@ -128,7 +131,7 @@ dwDeviceTypes_t device = {
 };
 
 uint8_t tagBaseAddr[2] = {0x20, 0x01};
-uint8_t anchorAddress[8] = {0x89, 0x01};
+uint8_t anchorAddress[2] = {0x89, 0x01};
 
 volatile bool sentAck = false;
 volatile bool recievedAck = false;
@@ -177,21 +180,12 @@ void log_data(char *string)
   HAL_UART_Transmit(&huart1, (uint8_t *)string, strlen(string), 1000);
 }
 
-int _write(int file, char *ptr, int len)
-{
-  int i=0;
-  for(i=0;i<len;i++)
-  {
-    ITM_SendChar((*ptr++));
-  }
-  return len;
-}
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -237,7 +231,6 @@ int main(void)
   dwNewConfiguration(&device);
   dwSetDefaults(&device);
   dwCommitConfiguration(&device);
-  //
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -247,11 +240,14 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    dwInteruptHandler();
+    //dwInteruptHandler();
     // init ranging
     if (initAck)
     {
       initAck = false;
+      char buf[10] = {0};
+      sprintf(buf, "####SEQ: %ld\r\n", seq_mess);
+      // log_data(buf);
       // memset(&txHandle, 0, sizeof(txHandle));
       // txHandle.typemess = POLL;
       // txHandle.seq = ++curr_seq; // poll message has seq = 1; answer is 2;..
@@ -267,11 +263,11 @@ int main(void)
       dwSetDefaults(&device);
       dwSetData(&device, (uint8_t *)&txPacket, MAC802154_HEADER_LENGTH + 2); // 2 is length of payload
       dwStartTransmit(&device);
-      // do
-      // {
-      //   dwReadSystemEventStatusRegister(&device);
-      // } while (!(device.sysstatus[0] & (1 << TXFRS_BIT))); //if check TXRFS bit is 1, transmist OKE
-      // dwInteruptHandler();
+      do
+      {
+        dwReadSystemEventStatusRegister(&device);
+      } while (!(device.sysstatus[0] & (1 << TXFRS_BIT))); // if check TXRFS bit is 1, transmist OKE
+      dwInteruptHandler();
     }
     if (sentAck)
     {
@@ -280,35 +276,81 @@ int main(void)
       dwTimestamp_t departure;
       dwGetTransmitTimestamp(&device, &departure);
       departure.timeFull += ANTENNA_DELAY;
-      log_data("TxCallBack\r\n");
+      // log_data("TxCallBack\r\n");
       switch (txPacket.payload[TYPE])
       {
       case POLL:
         poll_tx = departure;
-        log_data("POLL\r\n");
+        //log_data("POLL\r\n");
+        dwNewReceive(&device);
+        dwSetDefaults(&device);
+        dwStartReceive(&device);
+        uint32_t time = HAL_GetTick();
+        do
+        {
+          if (HAL_GetTick() - time > 20)
+          {
+            // log_data("TIMEOUT POLL AGAIN\r\n");
+            memset(&txPacket, 0, sizeof(txPacket));
+            txPacket.payload[TYPE] = POLL;
+            txPacket.payload[SEQ] = 1;
+            memcpy(txPacket.destAddress, anchorAddress, 2);
+            memcpy(txPacket.sourceAddress, tagBaseAddr, 2);
+            //  transmision
+            dwNewTransmit(&device);
+            dwSetDefaults(&device);
+            dwSetData(&device, (uint8_t *)&txPacket, MAC802154_HEADER_LENGTH + 2); // 2 is length of payload
+            dwStartTransmit(&device);
+            do
+            {
+              dwReadSystemEventStatusRegister(&device);
+            } while (!(device.sysstatus[0] & (1 << TXFRS_BIT)));
+            dwClearTransmitStatus(&device);
+
+            dwGetTransmitTimestamp(&device, &departure);
+            departure.timeFull += ANTENNA_DELAY;
+            poll_tx = departure;
+
+            // log_data("TXOKE POLL AGAIN\r\n");
+            //receive ANWSER
+            dwNewReceive(&device);
+            dwSetDefaults(&device);
+            dwStartReceive(&device);
+
+            time = HAL_GetTick();
+            // break;
+          }
+          dwReadSystemEventStatusRegister(&device);
+        } while (!((device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)) || (device.sysstatus[2] & ((1 << RXRFTO_BIT) >> 16))));
+        dwInteruptHandler();
         break;
       case FINAL:
         final_tx = departure;
-        log_data("FINAL\r\n");
+        //log_data("FINAL\r\n");
+        dwNewReceive(&device);
+        dwSetDefaults(&device);
+        dwStartReceive(&device);
+        uint32_t time1 = HAL_GetTick();
+        do
+        {
+          if (HAL_GetTick() - time1 > 100)
+          {
+            // log_data("TIMEOUT FINAL\r\n");
+            initAck = true;
+            break;
+          }
+          dwReadSystemEventStatusRegister(&device);
+        } while ((HAL_GetTick() - time1 < 100)||(!((device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)) || (device.sysstatus[2] & ((1 << RXRFTO_BIT) >> 16)))));
+        
+        dwInteruptHandler();
         break;
       }
-      // config recieve message
-      //dwSetReceiveWaitTimeout(&device, RX_TIMEOUT);
-      //dwWriteSystemConfigurationRegister(&device);
-      dwNewReceive(&device);
-      dwSetDefaults(&device);
-      dwStartReceive(&device);
-      // do
-      // {
-      //   dwReadSystemEventStatusRegister(&device);
-      // } while (!((device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)) || (device.sysstatus[2] & ((1 << RXRFTO_BIT) >> 16))));
-      // dwInteruptHandler();
     }
 
     if (recievedAck)
     {
       recievedAck = false;
-      log_data("RxCallback\r\n");
+      // log_data("RxCallback\r\n");
       dwTimestamp_t arival;
       // check data length
       int dataLenght = dwGetDataLength(&device);
@@ -336,7 +378,7 @@ int main(void)
         switch (rxPacket.payload[TYPE])
         {
         case ANSWER:
-          log_data("ANSWER\r\n");
+          // log_data("ANSWER\r\n");
           if (rxPacket.payload[SEQ] != 2) // 2
           {
             log_data("wrong sequence number\r\n");
@@ -355,14 +397,15 @@ int main(void)
           dwSetDefaults(&device);
           dwSetData(&device, (uint8_t *)&txPacket, MAC802154_HEADER_LENGTH + 2); // 2 is length of payload
           dwStartTransmit(&device);
-          // do
-          // {
-          //   dwReadSystemEventStatusRegister(&device);
-          // } while (!(device.sysstatus[0] & (1 << TXFRS_BIT)));
-          // dwInteruptHandler();
+          do
+          {
+            dwReadSystemEventStatusRegister(&device);
+          } while (!(device.sysstatus[0] & (1 << TXFRS_BIT)));
+          dwInteruptHandler();
           break;
         case REPORT:
-          log_data("REPORT\r\n");
+          // log_data("REPORT\r\n");
+          {
           // reportpayload to receive timestamp of anchor send to tag to calculate
           // able truy cap cac phan tu trong payload thong qua con tro
           reportPayload_t *reportmess = (reportPayload_t *)(rxPacket.payload + 2);
@@ -381,36 +424,40 @@ int main(void)
           tround2 = final_rx.timeLow32 - answer_tx.timeLow32;
           treply2 = final_tx.timeLow32 - answer_rx.timeLow32;
 
-          //printf("tround1: %f   treply2: %f\r\r\n", tround1, treply2);
-          //printf("tround2: %f   treply1: %f\r\r\n", tround2, treply1);
+          // printf("tround1: %f   treply2: %f\r\r\n", tround1, treply2);
+          // printf("tround2: %f   treply1: %f\r\r\n", tround2, treply1);
 
           // tprop_ctn is value of resigter timer
           tprop_ctn = ((tround1 * tround2) - (treply1 * treply2)) / (tround1 + tround2 + treply1 + treply2);
-          //printf("TProp (ctn): %d\r\r\n", (unsigned int)tprop_ctn);
+          // printf("TProp (ctn): %d\r\r\n", (unsigned int)tprop_ctn);
 
           // tprop is value unit sencond
           tprop = tprop_ctn / tsfreq;
           distance = C * tprop;
 
-          //printf("distance of anchor %d is: %5d(mm)", (int)rxPacket.sourceAddress, (unsigned int)distance * 1000);
-          char buf1[50], buf2[30], buf3[30];
+          // printf("distance of anchor %d is: %5d(mm)", (int)rxPacket.sourceAddress, (unsigned int)distance * 1000);
+          char buf1[50], buf2[30], buf3[30], buf4[30];
 
-          sprintf(buf3, "time of flight: %f\r\n", tprop*1000000000000);
-          log_data(buf3);
+          // sprintf(buf3, "time of flight: %.2f(ns)\r\n", tprop * 1000000000000);
+          // log_data(buf3);
+          if(distance>0)
+          {
+            sprintf(buf1, "%.1f\r\n", distance * 1000);
+            log_data(buf1);
+          }
 
-          sprintf(buf1, "distance: %f(mm)\r\n", distance * 1000);
-          log_data(buf1);
-
-          dwGetReceiveTimestamp(&device, &arival);
-          arival.timeFull -= ANTENNA_DELAY;
-          double totaltime;
-          totaltime = (arival.timeLow32 - poll_tx.timeLow32) / tsfreq;
-          sprintf(buf2, "total time: %f\r\n", totaltime);
-          log_data(buf2);
+          // dwGetReceiveTimestamp(&device, &arival);
+          // arival.timeFull -= ANTENNA_DELAY;
+          // double totaltime;
+          // totaltime = (arival.timeLow32 - poll_tx.timeLow32) / tsfreq;
+          // sprintf(buf2, "total time: %.2f(ms)\r\n", totaltime*1000);
+          // log_data(buf2);
 
           // curr_seq = 1;
           initAck = true;
+          seq_mess++;
           break;
+          }
         }
       }
     }
@@ -419,17 +466,17 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -443,9 +490,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -462,9 +508,9 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -476,14 +522,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

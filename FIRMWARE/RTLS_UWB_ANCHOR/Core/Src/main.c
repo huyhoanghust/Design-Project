@@ -102,7 +102,7 @@ packet_t txPacket = {0};
 
 uint8_t curr_seq = 1;
 int curr_anchor = 0;
-
+long int seq_mess = 1;
 dwDeviceTypes_t device = {
     .extendedFrameLength = FRAME_LENGTH_NORMAL,
     .pacSize = PAC_SIZE_8,
@@ -176,9 +176,9 @@ void log_data(char *string)
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -207,8 +207,8 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   log_data("[ANCHOR START]\r\n");
-  MAC80215_PACKET_INIT(txPacket, MAC802154_TYPE_DATA);
-  MAC80215_PACKET_INIT(rxPacket, MAC802154_TYPE_DATA);
+  // MAC80215_PACKET_INIT(txPacket, MAC802154_TYPE_DATA);
+  // MAC80215_PACKET_INIT(rxPacket, MAC802154_TYPE_DATA);
   // init DW1000
   dwInit(&device);
   if (dwConfigure(&device) == DW_ERROR_OK)
@@ -229,27 +229,36 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    dwInteruptHandler();
+    //dwInteruptHandler();
     // init receive range
     if (initAck)
     {
       initAck = false;
+      char buf[10] = {0};
+      // sprintf(buf, "####SEQ: %ld\r\n", seq_mess);
+      // log_data(buf);
       memset(&txPacket, 0, sizeof(txPacket));
       memset(&rxPacket, 0, sizeof(rxPacket));
       dwNewReceive(&device);
       dwSetDefaults(&device);
       dwStartReceive(&device);
+      do
+      {
+        dwReadSystemEventStatusRegister(&device);
+      } while (!(device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)));
+      dwInteruptHandler();
     }
 
     if (recievedAck)
     {
       recievedAck = false;
-      log_data("RxCallback\r\n");
+      // log_data("RxCallback\r\n");
       dwTimestamp_t arival;
       // check data length
       int datalength = dwGetDataLength(&device);
@@ -266,6 +275,7 @@ int main(void)
       if (memcmp(rxPacket.destAddress, anchorAddress, 2))
       {
         // wrong address and repeat receive
+        log_data("error address\r\n");
         dwNewReceive(&device);
         dwSetDefaults(&device);
         dwStartReceive(&device);
@@ -277,7 +287,7 @@ int main(void)
         switch (rxPacket.payload[TYPE])
         {
         case POLL:
-          log_data("POLL\r\n");
+          // log_data("POLL\r\n");
           if (rxPacket.payload[SEQ] != 1) // 1
           {
             log_data("wrong sequence number\r\n");
@@ -295,10 +305,15 @@ int main(void)
           dwSetDefaults(&device);
           dwSetData(&device, (uint8_t *)&txPacket, MAC802154_HEADER_LENGTH + 2);
           dwStartTransmit(&device);
+          do
+          {
+            dwReadSystemEventStatusRegister(&device);
+          } while (!(device.sysstatus[0] & (1 << TXFRS_BIT)));
+          dwInteruptHandler();
           break;
 
         case FINAL:
-          log_data("FINAL\r\n");
+          // log_data("FINAL\r\n");
           if (rxPacket.payload[SEQ] != 3) // 3
           {
             log_data("wrong sequence number\r\n");
@@ -324,6 +339,11 @@ int main(void)
           dwSetDefaults(&device);
           dwSetData(&device, (uint8_t *)&txPacket, MAC802154_HEADER_LENGTH + 2 + sizeof(reportPayload_t));
           dwStartTransmit(&device);
+          do
+          {
+            dwReadSystemEventStatusRegister(&device);
+          } while (!(device.sysstatus[0] & (1 << TXFRS_BIT)));
+          dwInteruptHandler();
           break;
         }
       }
@@ -335,19 +355,26 @@ int main(void)
       dwTimestamp_t departure;
       dwGetTransmitTimestamp(&device, &departure);
       departure.timeFull += ANTENNA_DELAY;
-      log_data("TxCallback\r\n");
+      // log_data("TxCallback\r\n");
       switch (txPacket.payload[TYPE])
       {
       case ANSWER:
-        log_data("ANSWER\r\n");
+        // log_data("ANSWER\r\n");
         answer_tx = departure;
+        //receive Final 
         dwNewReceive(&device);
         dwSetDefaults(&device);
         dwStartReceive(&device);
+        do
+        {
+          dwReadSystemEventStatusRegister(&device);
+        } while (!(device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)));
+        dwInteruptHandler();
         break;
       case REPORT:
-        log_data("REPORT\r\n");
-        //curr_seq = 1;
+        // log_data("REPORT\r\n");
+        // curr_seq = 1;
+        seq_mess++;
         initAck = true;
         break;
       }
@@ -359,17 +386,17 @@ int main(void)
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -383,8 +410,9 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -401,9 +429,9 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -415,19 +443,19 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+     ex: printf("Wrong parameters value: file %s on line %d\r\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
