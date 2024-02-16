@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "iwdg.h"
 #include "spi.h"
 #include "usart.h"
 #include "gpio.h"
@@ -107,7 +108,7 @@ dwDeviceTypes_t device = {
     .extendedFrameLength = FRAME_LENGTH_NORMAL,
     .pacSize = PAC_SIZE_8,
     .pulseFrequency = TX_PULSE_FREQ_64MHZ,
-    .dataRate = TRX_RATE_6800KBPS,
+    .dataRate = TRX_RATE_850KBPS,//TRX_RATE_6800KBPS,
     .preambleLength = TX_PREAMBLE_LEN_128,
     .preambleCode = PREAMBLE_CODE_64MHZ_9,
     .channel = CHANNEL_5,
@@ -205,6 +206,7 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   MX_USART1_UART_Init();
+
   /* USER CODE BEGIN 2 */
   log_data("[ANCHOR START]\r\n");
   // MAC80215_PACKET_INIT(txPacket, MAC802154_TYPE_DATA);
@@ -225,6 +227,8 @@ int main(void)
   dwSetDefaults(&device);
   dwCommitConfiguration(&device);
   clearAllFlag();
+
+  MX_IWDG_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -275,11 +279,8 @@ int main(void)
       if (memcmp(rxPacket.destAddress, anchorAddress, 2))
       {
         // wrong address and repeat receive
-        log_data("error address\r\n");
-        dwNewReceive(&device);
-        dwSetDefaults(&device);
-        dwStartReceive(&device);
-        return 0;
+        //log_data("error address\r\n");
+        initAck = true;
       }
       else
       {
@@ -294,7 +295,7 @@ int main(void)
             return 0;
           }
           dwGetReceiveTimestamp(&device, &arival);
-          arival.timeFull -= ANTENNA_DELAY;
+          //arival.timeFull -= ANTENNA_DELAY;
           poll_rx = arival;
 
           txPacket.payload[TYPE] = ANSWER;
@@ -321,7 +322,7 @@ int main(void)
           }
 
           dwGetReceiveTimestamp(&device, &arival);
-          arival.timeFull -= ANTENNA_DELAY;
+          //arival.timeFull -= ANTENNA_DELAY;
           final_rx = arival;
 
           memset(&txPacket, 0, sizeof(txPacket));
@@ -354,7 +355,7 @@ int main(void)
       sentAck = false;
       dwTimestamp_t departure;
       dwGetTransmitTimestamp(&device, &departure);
-      departure.timeFull += ANTENNA_DELAY;
+      //departure.timeFull += ANTENNA_DELAY;
       // log_data("TxCallback\r\n");
       switch (txPacket.payload[TYPE])
       {
@@ -376,6 +377,9 @@ int main(void)
         // curr_seq = 1;
         seq_mess++;
         initAck = true;
+
+        HAL_IWDG_Refresh(&hiwdg);
+        
         break;
       }
       //       dwSetReceiveWaitTimeout(&device, RX_TIMEOUT);
@@ -397,10 +401,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;

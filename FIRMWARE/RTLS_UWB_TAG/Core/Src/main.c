@@ -18,7 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "iwdg.h"
 #include "spi.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -99,27 +101,40 @@ static dwTimestamp_t answer_rx;
 static dwTimestamp_t final_tx;
 static dwTimestamp_t final_rx;
 
-static const double C = 299702547;//299792458.0;        // Speed of light
+static const double C = 299702547;          // 299792458.0;        // Speed of light
 static const double tsfreq = 499.2e6 * 128; // Timestamp counter frequency
 
 // #define ANTENNA_OFFSET 154.6                                         // In meter
 // #define ANTENNA_DELAY (ANTENNA_OFFSET * 499.2e6 * 128) / 299792458.0 // In radio tick
-#define ANTENNA_DELAY 16450//16475
+#define ANTENNA_DELAY 16469 // 16475 50
 
 packet_t rxPacket = {0};
 packet_t txPacket = {0};
 txHandle_t txHandle = {0};
+double arr_distance[3] = {0};
+double average[30] = {0}; 
+int count_aver=0;
+double aver = 0;
+volatile bool Flag_reset_timer = false;
+
+// coordinate of anchors
+float x_anchor1 = 200.0, y_anchor1 = 0.0;
+float x_anchor2 = 0.0, y_anchor2 = 0.0;
+float x_anchor3 = 0.0, y_anchor3 = 800.0;
+
+// coor of tag
+float coor_x, coor_y;
 
 uint8_t curr_seq = 1;
 int curr_anchor = 0;
 long int seq_mess = 1;
-
+int anchor_th = 0; // STT anchor
 
 dwDeviceTypes_t device = {
     .extendedFrameLength = FRAME_LENGTH_NORMAL,
     .pacSize = PAC_SIZE_8,
     .pulseFrequency = TX_PULSE_FREQ_64MHZ,
-    .dataRate = TRX_RATE_6800KBPS,
+    .dataRate = TRX_RATE_850KBPS,//TRX_RATE_6800KBPS,
     .preambleLength = TX_PREAMBLE_LEN_128,
     .preambleCode = PREAMBLE_CODE_64MHZ_9,
     .channel = CHANNEL_5,
@@ -131,7 +146,7 @@ dwDeviceTypes_t device = {
 };
 
 uint8_t tagBaseAddr[2] = {0x20, 0x01};
-uint8_t anchorAddress[2] = {0x89, 0x01};
+uint8_t anchorAddress[6] = {0x89, 0x01, 0x89, 0x02, 0x89, 0x03};
 
 volatile bool sentAck = false;
 volatile bool recievedAck = false;
@@ -177,15 +192,40 @@ void dwInteruptHandler(void)
 
 void log_data(char *string)
 {
-  HAL_UART_Transmit(&huart1, (uint8_t *)string, strlen(string), 1000);
+  HAL_UART_Transmit(&huart, (uint8_t *)string, strlen(string), 1000);
 }
 
+void cal_location(float x1, float y1, float x2, float y2, float x3, float y3)
+{
+  float A, B, C, D, E, F;
+  A = 2 * (x2 - x1);
+  B = 2 * (y2 - y1);
+  C = arr_distance[0] * arr_distance[0] - arr_distance[1] * arr_distance[1] - x1 * x1 + x2 * x2 - y1 * y1 + y2 * y2;
+  D = 2 * (x3 - x1);
+  E = 2 * (y3 - y1);
+  F = arr_distance[0] * arr_distance[0] - arr_distance[2] * arr_distance[2] - x1 * x1 + x3 * x3 - y1 * y1 + y3 * y3;
+  coor_x = (C * E - F * B) / (E * A - B * D);
+  coor_y = (C * D - A * F) / (B * D - A * E);
+}
+
+
+// void set_timer(long time)
+// {
+//   TIM1.CNT = 60000 - time * 10;
+// }
+// void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+// {
+//   Flag_reset_timer = true;
+//   // set_timer(1000);
+//   log_data("Reset by Timer\r\n");
+//   //NVIC_SystemReset();
+// }
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -212,6 +252,8 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   MX_USART1_UART_Init();
+  MX_TIM1_Init();
+  //MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
   log_data("[TAG START]\r\n");
   MAC80215_PACKET_INIT(txPacket, MAC802154_TYPE_DATA);
@@ -231,6 +273,11 @@ int main(void)
   dwNewConfiguration(&device);
   dwSetDefaults(&device);
   dwCommitConfiguration(&device);
+
+  //set_timer(1000);
+  //HAL_TIM_Base_Start_IT(&htim1);
+
+  MX_IWDG_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -240,8 +287,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    //dwInteruptHandler();
-    // init ranging
+    // dwInteruptHandler();
+    //  init ranging
     if (initAck)
     {
       initAck = false;
@@ -255,7 +302,7 @@ int main(void)
       memset(&rxPacket, 0, sizeof(rxPacket));
       txPacket.payload[TYPE] = POLL;
       txPacket.payload[SEQ] = 1;
-      memcpy(txPacket.destAddress, anchorAddress, 2);
+      memcpy(txPacket.destAddress, anchorAddress + 2 * anchor_th, 2);
       memcpy(txPacket.sourceAddress, tagBaseAddr, 2);
       // memcpy(txPacket.payload, &txHandle, sizeof(txHandle));
       //  transmision
@@ -281,20 +328,20 @@ int main(void)
       {
       case POLL:
         poll_tx = departure;
-        //log_data("POLL\r\n");
+        // log_data("POLL\r\n");
         dwNewReceive(&device);
         dwSetDefaults(&device);
         dwStartReceive(&device);
         uint32_t time = HAL_GetTick();
         do
         {
-          if (HAL_GetTick() - time > 20)
+          if (HAL_GetTick() - time > 10)
           {
             // log_data("TIMEOUT POLL AGAIN\r\n");
             memset(&txPacket, 0, sizeof(txPacket));
             txPacket.payload[TYPE] = POLL;
             txPacket.payload[SEQ] = 1;
-            memcpy(txPacket.destAddress, anchorAddress, 2);
+            memcpy(txPacket.destAddress, anchorAddress + 2 * anchor_th, 2);
             memcpy(txPacket.sourceAddress, tagBaseAddr, 2);
             //  transmision
             dwNewTransmit(&device);
@@ -312,7 +359,7 @@ int main(void)
             poll_tx = departure;
 
             // log_data("TXOKE POLL AGAIN\r\n");
-            //receive ANWSER
+            // receive ANWSER
             dwNewReceive(&device);
             dwSetDefaults(&device);
             dwStartReceive(&device);
@@ -326,22 +373,22 @@ int main(void)
         break;
       case FINAL:
         final_tx = departure;
-        //log_data("FINAL\r\n");
+        // log_data("FINAL\r\n");
         dwNewReceive(&device);
         dwSetDefaults(&device);
         dwStartReceive(&device);
         uint32_t time1 = HAL_GetTick();
         do
         {
-          if (HAL_GetTick() - time1 > 100)
+          if (HAL_GetTick() - time1 > 10)
           {
             // log_data("TIMEOUT FINAL\r\n");
             initAck = true;
             break;
           }
           dwReadSystemEventStatusRegister(&device);
-        } while ((HAL_GetTick() - time1 < 100)||(!((device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)) || (device.sysstatus[2] & ((1 << RXRFTO_BIT) >> 16)))));
-        
+        } while ((HAL_GetTick() - time1 < 100) || (!((device.sysstatus[1] & (((1 << RXDFR_BIT) | (1 << RXFCG_BIT)) >> 8)) || (device.sysstatus[2] & ((1 << RXRFTO_BIT) >> 16)))));
+
         dwInteruptHandler();
         break;
       }
@@ -391,7 +438,7 @@ int main(void)
           memset(&txPacket, 0, sizeof(txPacket));
           txPacket.payload[TYPE] = FINAL;
           txPacket.payload[SEQ] = 3; // 3
-          memcpy(txPacket.destAddress, anchorAddress, 2);
+          memcpy(txPacket.destAddress, anchorAddress + 2 * anchor_th, 2);
           memcpy(txPacket.sourceAddress, tagBaseAddr, 2);
           dwNewTransmit(&device);
           dwSetDefaults(&device);
@@ -406,57 +453,87 @@ int main(void)
         case REPORT:
           // log_data("REPORT\r\n");
           {
-          // reportpayload to receive timestamp of anchor send to tag to calculate
-          // able truy cap cac phan tu trong payload thong qua con tro
-          reportPayload_t *reportmess = (reportPayload_t *)(rxPacket.payload + 2);
-          double tround1, treply1, tround2, treply2, tprop_ctn, tprop, distance;
-          if (rxPacket.payload[SEQ] != 4) // 4
-          {
-            log_data("wrong sequence number\r\n");
-            return 0;
-          }
-          memcpy(&poll_rx, &reportmess->pollRx, 5);
-          memcpy(&answer_tx, &reportmess->answerTx, 5);
-          memcpy(&final_rx, &reportmess->finalRx, 5);
+            // reportpayload to receive timestamp of anchor send to tag to calculate
+            // able truy cap cac phan tu trong payload thong qua con tro
+            reportPayload_t *reportmess = (reportPayload_t *)(rxPacket.payload + 2);
+            double tround1, treply1, tround2, treply2, tprop_ctn, tprop, distance;
+            if (rxPacket.payload[SEQ] != 4) // 4
+            {
+              log_data("wrong sequence number\r\n");
+              return 0;
+            }
+            memcpy(&poll_rx, &reportmess->pollRx, 5);
+            memcpy(&answer_tx, &reportmess->answerTx, 5);
+            memcpy(&final_rx, &reportmess->finalRx, 5);
 
-          tround1 = answer_rx.timeLow32 - poll_tx.timeLow32;
-          treply1 = answer_tx.timeLow32 - poll_rx.timeLow32;
-          tround2 = final_rx.timeLow32 - answer_tx.timeLow32;
-          treply2 = final_tx.timeLow32 - answer_rx.timeLow32;
+            poll_rx.timeFull -= ANTENNA_DELAY;
+            answer_tx.timeFull += ANTENNA_DELAY;
+            final_rx.timeFull -= ANTENNA_DELAY;
 
-          // printf("tround1: %f   treply2: %f\r\r\n", tround1, treply2);
-          // printf("tround2: %f   treply1: %f\r\r\n", tround2, treply1);
+            tround1 = answer_rx.timeLow32 - poll_tx.timeLow32;
+            treply1 = answer_tx.timeLow32 - poll_rx.timeLow32;
+            tround2 = final_rx.timeLow32 - answer_tx.timeLow32;
+            treply2 = final_tx.timeLow32 - answer_rx.timeLow32;
 
-          // tprop_ctn is value of resigter timer
-          tprop_ctn = ((tround1 * tround2) - (treply1 * treply2)) / (tround1 + tround2 + treply1 + treply2);
-          // printf("TProp (ctn): %d\r\r\n", (unsigned int)tprop_ctn);
+            // printf("tround1: %f   treply2: %f\r\r\n", tround1, treply2);
+            // printf("tround2: %f   treply1: %f\r\r\n", tround2, treply1);
 
-          // tprop is value unit sencond
-          tprop = tprop_ctn / tsfreq;
-          distance = C * tprop;
+            // tprop_ctn is value of resigter timer
+            tprop_ctn = ((tround1 * tround2) - (treply1 * treply2)) / (tround1 + tround2 + treply1 + treply2);
+            // printf("TProp (ctn): %d\r\r\n", (unsigned int)tprop_ctn);
 
-          // printf("distance of anchor %d is: %5d(mm)", (int)rxPacket.sourceAddress, (unsigned int)distance * 1000);
-          char buf1[50], buf2[30], buf3[30], buf4[30];
+            // tprop is value unit sencond
+            tprop = tprop_ctn / tsfreq;
+            distance = C * tprop * 100; // unit cm
 
-          // sprintf(buf3, "time of flight: %.2f(ns)\r\n", tprop * 1000000000000);
-          // log_data(buf3);
-          if(distance>0)
-          {
-            sprintf(buf1, "%.1f\r\n", distance * 1000);
-            log_data(buf1);
-          }
+            // printf("distance of anchor %d is: %5d(mm)", (int)rxPacket.sourceAddress, (unsigned int)distance * 1000);
+            char buf1[50], buf2[30], buf3[30], buf4[30];
 
-          // dwGetReceiveTimestamp(&device, &arival);
-          // arival.timeFull -= ANTENNA_DELAY;
-          // double totaltime;
-          // totaltime = (arival.timeLow32 - poll_tx.timeLow32) / tsfreq;
-          // sprintf(buf2, "total time: %.2f(ms)\r\n", totaltime*1000);
-          // log_data(buf2);
+            // sprintf(buf3, "time of flight: %.2f(ns)\r\n", tprop * 1000000000000);
+            // log_data(buf3);
+            if (distance > 0 && distance < 2000)
+            {
+              arr_distance[anchor_th] = distance;
+              // average[count_aver] = distance;
+              // aver = aver + distance;
+              // sprintf(buf1, "anchor[%d]:%.1f\r\n",anchor_th, distance);
+              // log_data(buf1);
 
-          // curr_seq = 1;
-          initAck = true;
-          seq_mess++;
-          break;
+              // count_aver++;
+              // if (count_aver == 30)
+              // {
+              //   count_aver = 0;
+              //   aver = aver / 30;
+              //   sprintf(buf2, "aver: %.1f\r\n", aver);
+              //   log_data(buf2);
+              // }
+              anchor_th++;
+              // enough 3 anchor
+              if (anchor_th == 3)
+              {
+                //log_data("Enough 3 anchor\r\n");
+                cal_location(x_anchor1, y_anchor1, x_anchor2, y_anchor2, x_anchor3, y_anchor3);
+                char buf_coor[30];
+                sprintf(buf_coor, "%.1f, %.1f\r\n", coor_x, coor_y);
+                log_data(buf_coor);
+                anchor_th = 0;
+              }
+            }
+
+            // dwGetReceiveTimestamp(&device, &arival);
+            // arival.timeFull -= ANTENNA_DELAY;
+            // double totaltime;
+            // totaltime = (arival.timeLow32 - poll_tx.timeLow32) / tsfreq;
+            // sprintf(buf2, "total time: %.2f(ms)\r\n", totaltime*1000);
+            // log_data(buf2);
+
+
+            initAck = true;
+            seq_mess++;
+            
+            HAL_IWDG_Refresh(&hiwdg);
+
+            break;
           }
         }
       }
@@ -466,21 +543,22 @@ int main(void)
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
@@ -490,8 +568,9 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -508,9 +587,9 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -522,14 +601,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
